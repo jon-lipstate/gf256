@@ -230,34 +230,20 @@ process_chunk :: proc(dst, src: []u8, ctx: ^Context, coeff: GF256, $T: typeid)
     lo_nibbles := simd.bit_and(src_vec, mask_0f)
     hi_nibbles := simd.bit_and(simd.shr_masked(src_vec, T(4)), mask_0f)
     
-    // Extract coefficient column from pre-computed tables (temporary approach)
+    // Extract coefficient column from pre-computed tables (cache-friendly access)
+    table_lo_vec, table_hi_vec: T
     when T == simd.u8x16 {
-        lo_column: [16]u8
-        hi_column: [16]u8
-        for i in 0..<16 {
-            lo_column[i] = ctx.simd_tables.simd_16.mul_lo_table[i][coeff]
-            hi_column[i] = ctx.simd_tables.simd_16.mul_hi_table[i][coeff]
-        }
-        table_lo_vec := simd.from_array(lo_column)
-        table_hi_vec := simd.from_array(hi_column)
+        // Direct slice access - single cache line
+        table_lo_vec = simd.from_array(ctx.simd_tables.simd_16.mul_lo_table[coeff])
+        table_hi_vec = simd.from_array(ctx.simd_tables.simd_16.mul_hi_table[coeff])
     } else when T == simd.u8x32 {
-        lo_column: [32]u8
-        hi_column: [32]u8
-        for i in 0..<32 {
-            lo_column[i] = ctx.simd_tables.simd_32.mul_lo_scaled_32[i][coeff]
-            hi_column[i] = ctx.simd_tables.simd_32.mul_hi_scaled_32[i][coeff]
-        }
-        table_lo_vec := simd.from_array(lo_column)
-        table_hi_vec := simd.from_array(hi_column)
+        // Direct slice access - single cache line
+        table_lo_vec = simd.from_array(ctx.simd_tables.simd_32.mul_lo_scaled_32[coeff])
+        table_hi_vec = simd.from_array(ctx.simd_tables.simd_32.mul_hi_scaled_32[coeff])
     } else when T == simd.u8x64 {
-        lo_column: [64]u8
-        hi_column: [64]u8
-        for i in 0..<64 {
-            lo_column[i] = ctx.simd_tables.simd_64.mul_lo_scaled_64[i][coeff]
-            hi_column[i] = ctx.simd_tables.simd_64.mul_hi_scaled_64[i][coeff]
-        }
-        table_lo_vec := simd.from_array(lo_column)
-        table_hi_vec := simd.from_array(hi_column)
+        // Direct slice access - single cache line
+        table_lo_vec = simd.from_array(ctx.simd_tables.simd_64.mul_lo_scaled_64[coeff])
+        table_hi_vec = simd.from_array(ctx.simd_tables.simd_64.mul_hi_scaled_64[coeff])
     } else {
         #panic("Unsupported SIMD vector size")
     }
@@ -286,34 +272,20 @@ multiply_add_chunk :: proc(dst, src: []u8, ctx: ^Context, coeff: GF256, $T: type
     lo_nibbles := simd.bit_and(src_vec, mask_0f)
     hi_nibbles := simd.bit_and(simd.shr_masked(src_vec, T(4)), mask_0f)
     
-    // Extract coefficient column from pre-computed tables (temporary approach)
+    // Extract coefficient column from pre-computed tables (cache-friendly access)
+    table_lo_vec, table_hi_vec: T
     when T == simd.u8x16 {
-        lo_column: [16]u8
-        hi_column: [16]u8
-        for i in 0..<16 {
-            lo_column[i] = ctx.simd_tables.simd_16.mul_lo_table[i][coeff]
-            hi_column[i] = ctx.simd_tables.simd_16.mul_hi_table[i][coeff]
-        }
-        table_lo_vec := simd.from_array(lo_column)
-        table_hi_vec := simd.from_array(hi_column)
+        // Direct slice access - single cache line
+        table_lo_vec = simd.from_array(ctx.simd_tables.simd_16.mul_lo_table[coeff])
+        table_hi_vec = simd.from_array(ctx.simd_tables.simd_16.mul_hi_table[coeff])
     } else when T == simd.u8x32 {
-        lo_column: [32]u8
-        hi_column: [32]u8
-        for i in 0..<32 {
-            lo_column[i] = ctx.simd_tables.simd_32.mul_lo_scaled_32[i][coeff]
-            hi_column[i] = ctx.simd_tables.simd_32.mul_hi_scaled_32[i][coeff]
-        }
-        table_lo_vec := simd.from_array(lo_column)
-        table_hi_vec := simd.from_array(hi_column)
+        // Direct slice access - single cache line
+        table_lo_vec = simd.from_array(ctx.simd_tables.simd_32.mul_lo_scaled_32[coeff])
+        table_hi_vec = simd.from_array(ctx.simd_tables.simd_32.mul_hi_scaled_32[coeff])
     } else when T == simd.u8x64 {
-        lo_column: [64]u8
-        hi_column: [64]u8
-        for i in 0..<64 {
-            lo_column[i] = ctx.simd_tables.simd_64.mul_lo_scaled_64[i][coeff]
-            hi_column[i] = ctx.simd_tables.simd_64.mul_hi_scaled_64[i][coeff]
-        }
-        table_lo_vec := simd.from_array(lo_column)
-        table_hi_vec := simd.from_array(hi_column)
+        // Direct slice access - single cache line
+        table_lo_vec = simd.from_array(ctx.simd_tables.simd_64.mul_lo_scaled_64[coeff])
+        table_hi_vec = simd.from_array(ctx.simd_tables.simd_64.mul_hi_scaled_64[coeff])
     } else {
         #panic("Unsupported SIMD vector size")
     }
@@ -325,209 +297,6 @@ multiply_add_chunk :: proc(dst, src: []u8, ctx: ^Context, coeff: GF256, $T: type
     // Multiply result
     multiply_result := simd.bit_xor(lo_results, hi_results)
     // Add to destination (GF256 multiply-add) - minimize copies
-    final_result := simd.bit_xor(dst_vec, multiply_result)
-    result_array := simd.to_array(final_result)
-    copy(dst, result_array[:])
-}
-
-// Cached SIMD multiply region - use for repetitive operations with same coefficient
-@(private)
-multiply_region_cached :: proc(ctx: ^Context, dst, src: []u8, coeff: GF256, cache: ^Coeff_Cache) {
-    
-    // Handle special cases first
-    if coeff == GF256_ZERO {
-        for i in 0..<len(dst) {
-            dst[i] = 0
-        }
-        return
-    }
-    if coeff == GF256_ONE {
-        copy(dst, src)
-        return
-    }
-    
-    // Process in chunks of optimal vector width
-    i := 0
-    simd_end := (len(src) / int(ctx.simd_width)) * int(ctx.simd_width)
-    
-    for i < simd_end {
-        #partial switch ctx.simd_width {
-        case .x16:
-            process_chunk_cached(dst[i:i+16], src[i:i+16], ctx, coeff, cache, simd.u8x16)
-        case .x32:
-            process_chunk_cached(dst[i:i+32], src[i:i+32], ctx, coeff, cache, simd.u8x32)
-        case .x64:
-            process_chunk_cached(dst[i:i+64], src[i:i+64], ctx, coeff, cache, simd.u8x64)
-        case:
-            multiply_region_scalar(dst[i:], src[i:], coeff, &ctx.direct_mul_table)
-            return
-        }
-        i += int(ctx.simd_width)
-    }
-    
-    // Handle remaining bytes with scalar
-    coeff_table := &ctx.direct_mul_table[coeff]
-    for i < len(src) {
-        dst[i] = coeff_table[src[i]]
-        i += 1
-    }
-}
-
-// Cached SIMD multiply-add region
-@(private)  
-multiply_add_region_cached :: proc(ctx: ^Context, dst, src: []u8, coeff: GF256, cache: ^Coeff_Cache) {
-    
-    // Handle special cases
-    if coeff == GF256_ZERO {
-        return  // Adding zero changes nothing
-    }
-    if coeff == GF256_ONE {
-        for i in 0..<len(src) {
-            dst[i] ~= src[i]
-        }
-        return
-    }
-    
-    // Process in chunks of optimal vector width
-    i := 0
-    simd_end := (len(src) / int(ctx.simd_width)) * int(ctx.simd_width)
-    
-    for i < simd_end {
-        #partial switch ctx.simd_width {
-        case .x16:
-            multiply_add_chunk_cached(dst[i:i+16], src[i:i+16], ctx, coeff, cache, simd.u8x16)
-        case .x32:
-            multiply_add_chunk_cached(dst[i:i+32], src[i:i+32], ctx, coeff, cache, simd.u8x32)
-        case .x64:
-            multiply_add_chunk_cached(dst[i:i+64], src[i:i+64], ctx, coeff, cache, simd.u8x64)
-        case:
-            multiply_add_region_scalar(dst[i:], src[i:], coeff, &ctx.direct_mul_table)
-            return
-        }
-        i += int(ctx.simd_width)
-    }
-    
-    // Handle remaining bytes
-    coeff_table := &ctx.direct_mul_table[coeff]
-    for i < len(src) {
-        dst[i] ~= coeff_table[src[i]]
-        i += 1
-    }
-}
-
-// Cached SIMD chunk processing - eliminates coefficient table rebuilding
-@(private)
-process_chunk_cached :: proc(dst, src: []u8, ctx: ^Context, coeff: GF256, cache: ^Coeff_Cache, $T: typeid) 
-    where intrinsics.type_is_simd_vector(T) {
-    
-    src_vec := simd.from_slice(T, src)
-    
-    // catid's 4-bit split technique
-    mask_0f := T(0x0f)
-    lo_nibbles := simd.bit_and(src_vec, mask_0f)
-    hi_nibbles := simd.bit_and(simd.shr_masked(src_vec, T(4)), mask_0f)
-    
-    // Use coefficient caching for optimal performance
-    when T == simd.u8x16 {
-        if cache.cached_coeff != coeff {
-            // Cache miss - extract coefficient column once
-            for i in 0..<16 {
-                cache.cached_lo_16[i] = ctx.simd_tables.simd_16.mul_lo_table[i][coeff]
-                cache.cached_hi_16[i] = ctx.simd_tables.simd_16.mul_hi_table[i][coeff]
-            }
-            cache.cached_coeff = coeff  // Update cache
-        }
-        table_lo_vec := simd.from_array(cache.cached_lo_16)
-        table_hi_vec := simd.from_array(cache.cached_hi_16)
-    } else when T == simd.u8x32 {
-        if cache.cached_coeff != coeff {
-            for i in 0..<32 {
-                cache.cached_lo_32[i] = ctx.simd_tables.simd_32.mul_lo_scaled_32[i][coeff]
-                cache.cached_hi_32[i] = ctx.simd_tables.simd_32.mul_hi_scaled_32[i][coeff]
-            }
-            cache.cached_coeff = coeff
-        }
-        table_lo_vec := simd.from_array(cache.cached_lo_32)
-        table_hi_vec := simd.from_array(cache.cached_hi_32)
-    } else when T == simd.u8x64 {
-        if cache.cached_coeff != coeff {
-            for i in 0..<64 {
-                cache.cached_lo_64[i] = ctx.simd_tables.simd_64.mul_lo_scaled_64[i][coeff]
-                cache.cached_hi_64[i] = ctx.simd_tables.simd_64.mul_hi_scaled_64[i][coeff]
-            }
-            cache.cached_coeff = coeff
-        }
-        table_lo_vec := simd.from_array(cache.cached_lo_64)
-        table_hi_vec := simd.from_array(cache.cached_hi_64)
-    } else {
-        #panic("Unsupported SIMD vector size")
-    }
-    
-    // Hardware-accelerated table lookups
-    lo_results := simd.table_lookup(table_lo_vec, lo_nibbles)
-    hi_results := simd.table_lookup(table_hi_vec, hi_nibbles)
-    
-    // GF256 addition (XOR)
-    result_vec := simd.bit_xor(lo_results, hi_results)
-    result_array := simd.to_array(result_vec)
-    copy(dst, result_array[:])
-}
-
-// Cached SIMD multiply-add chunk processing
-@(private)
-multiply_add_chunk_cached :: proc(dst, src: []u8, ctx: ^Context, coeff: GF256, cache: ^Coeff_Cache, $T: typeid) 
-    where intrinsics.type_is_simd_vector(T) {
-    
-    src_vec := simd.from_slice(T, src)
-    dst_vec := simd.from_slice(T, dst)
-    
-    // catid's 4-bit split technique
-    mask_0f := T(0x0f)
-    lo_nibbles := simd.bit_and(src_vec, mask_0f)
-    hi_nibbles := simd.bit_and(simd.shr_masked(src_vec, T(4)), mask_0f)
-    
-    // Use coefficient caching for optimal performance
-    when T == simd.u8x16 {
-        if cache.cached_coeff != coeff {
-            for i in 0..<16 {
-                cache.cached_lo_16[i] = ctx.simd_tables.simd_16.mul_lo_table[i][coeff]
-                cache.cached_hi_16[i] = ctx.simd_tables.simd_16.mul_hi_table[i][coeff]
-            }
-            cache.cached_coeff = coeff
-        }
-        table_lo_vec := simd.from_array(cache.cached_lo_16)
-        table_hi_vec := simd.from_array(cache.cached_hi_16)
-    } else when T == simd.u8x32 {
-        if cache.cached_coeff != coeff {
-            for i in 0..<32 {
-                cache.cached_lo_32[i] = ctx.simd_tables.simd_32.mul_lo_scaled_32[i][coeff]
-                cache.cached_hi_32[i] = ctx.simd_tables.simd_32.mul_hi_scaled_32[i][coeff]
-            }
-            cache.cached_coeff = coeff
-        }
-        table_lo_vec := simd.from_array(cache.cached_lo_32)
-        table_hi_vec := simd.from_array(cache.cached_hi_32)
-    } else when T == simd.u8x64 {
-        if cache.cached_coeff != coeff {
-            for i in 0..<64 {
-                cache.cached_lo_64[i] = ctx.simd_tables.simd_64.mul_lo_scaled_64[i][coeff]
-                cache.cached_hi_64[i] = ctx.simd_tables.simd_64.mul_hi_scaled_64[i][coeff]
-            }
-            cache.cached_coeff = coeff
-        }
-        table_lo_vec := simd.from_array(cache.cached_lo_64)
-        table_hi_vec := simd.from_array(cache.cached_hi_64)
-    } else {
-        #panic("Unsupported SIMD vector size")
-    }
-    
-    // Hardware-accelerated table lookups
-    lo_results := simd.table_lookup(table_lo_vec, lo_nibbles)
-    hi_results := simd.table_lookup(table_hi_vec, hi_nibbles)
-    
-    // Multiply result
-    multiply_result := simd.bit_xor(lo_results, hi_results)
-    // Add to destination (GF256 multiply-add)
     final_result := simd.bit_xor(dst_vec, multiply_result)
     result_array := simd.to_array(final_result)
     copy(dst, result_array[:])

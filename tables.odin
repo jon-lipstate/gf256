@@ -5,7 +5,7 @@ import "core:sys/info"
 
 // SIMD capability detection
 @(private)
-detect_simd_capabilities :: proc(requested: Lane_Width = .x64) -> Lane_Width {
+detect_simd_capabilities :: proc(requested: Lane_Width = .x16) -> Lane_Width {
 	features, ok := info.cpu.features.?
 	if !ok {return .None}
 
@@ -153,31 +153,32 @@ build_simd_split_tables :: proc(ctx: ^Context) -> bool {
 	}
 
 	// Build split tables for all possible coefficients using direct multiplication table
+	// Using cache-friendly layout: [coefficient][nibble_value]
 	for coeff in 0 ..= 255 {
 		coeff_table := &ctx.direct_mul_table[coeff]
 
 		// Build low nibble table (0-15)
 		for i in 0 ..< 16 {
-			ctx.simd_tables.simd_16.mul_lo_table[i][coeff] = coeff_table[i]
+			ctx.simd_tables.simd_16.mul_lo_table[coeff][i] = coeff_table[i]
 		}
 
 		// Build high nibble table (0-15 shifted left by 4)
 		for i in 0 ..< 16 {
-			ctx.simd_tables.simd_16.mul_hi_table[i][coeff] = coeff_table[i << 4]
+			ctx.simd_tables.simd_16.mul_hi_table[coeff][i] = coeff_table[i << 4]
 		}
 	}
 
 	// Pre-compute scaled tables for wider SIMD operations
 	// This avoids rebuilding the replicated tables on every operation
 	if int(ctx.simd_width) >= 32 {
-		// Build 32-byte scaled tables (AVX2)
+		// Build 32-byte scaled tables (AVX2) - cache-friendly layout
 		for coeff in 0 ..= 255 {
 			for i in 0 ..< 16 {
 				// Replicate the 16-byte pattern twice for 32-byte vectors
-				ctx.simd_tables.simd_32.mul_lo_scaled_32[i][coeff] = ctx.simd_tables.simd_16.mul_lo_table[i][coeff]
-				ctx.simd_tables.simd_32.mul_lo_scaled_32[i+16][coeff] = ctx.simd_tables.simd_16.mul_lo_table[i][coeff]
-				ctx.simd_tables.simd_32.mul_hi_scaled_32[i][coeff] = ctx.simd_tables.simd_16.mul_hi_table[i][coeff]
-				ctx.simd_tables.simd_32.mul_hi_scaled_32[i+16][coeff] = ctx.simd_tables.simd_16.mul_hi_table[i][coeff]
+				ctx.simd_tables.simd_32.mul_lo_scaled_32[coeff][i] = ctx.simd_tables.simd_16.mul_lo_table[coeff][i]
+				ctx.simd_tables.simd_32.mul_lo_scaled_32[coeff][i+16] = ctx.simd_tables.simd_16.mul_lo_table[coeff][i]
+				ctx.simd_tables.simd_32.mul_hi_scaled_32[coeff][i] = ctx.simd_tables.simd_16.mul_hi_table[coeff][i]
+				ctx.simd_tables.simd_32.mul_hi_scaled_32[coeff][i+16] = ctx.simd_tables.simd_16.mul_hi_table[coeff][i]
 			}
 		}
 	}
@@ -188,8 +189,8 @@ build_simd_split_tables :: proc(ctx: ^Context) -> bool {
 			for i in 0 ..< 16 {
 				// Replicate the 16-byte pattern four times for 64-byte vectors
 				for j in 0 ..< 4 {
-					ctx.simd_tables.simd_64.mul_lo_scaled_64[i + j*16][coeff] = ctx.simd_tables.simd_16.mul_lo_table[i][coeff]
-					ctx.simd_tables.simd_64.mul_hi_scaled_64[i + j*16][coeff] = ctx.simd_tables.simd_16.mul_hi_table[i][coeff]
+					ctx.simd_tables.simd_64.mul_lo_scaled_64[coeff][i + j*16] = ctx.simd_tables.simd_16.mul_lo_table[coeff][i]
+					ctx.simd_tables.simd_64.mul_hi_scaled_64[coeff][i + j*16] = ctx.simd_tables.simd_16.mul_hi_table[coeff][i]
 				}
 			}
 		}

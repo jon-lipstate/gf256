@@ -6,7 +6,7 @@ import "core:mem"
 // Create a new GF(256) context with specified polynomial & SIMD target level
 context_create :: proc(
 	polynomial: u16 = AES_POLYNOMIAL,
-	requested := Lane_Width.x64,
+	requested := Lane_Width.x16,  // x16 provides best performance for GF256 table lookups
 	allocator := context.allocator,
 ) -> ^Context {
 	ctx := new(Context, allocator)

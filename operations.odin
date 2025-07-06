@@ -41,46 +41,25 @@ Context :: struct {
 	direct_mul_table:  [256][256]u8, // 64KB: direct multiplication table
 	direct_div_table:  [256][256]u8, // 64KB: direct division table
 
-	// SIMD table storage (32KB)
+	// SIMD table storage (32KB) - cache-friendly column-major layout
 	simd_tables:       struct #raw_union {
 		simd_16: struct {
-			mul_lo_table: [16][256]u8, // 4KB: Low nibble table
-			mul_hi_table: [16][256]u8, // 4KB: High nibble table
+			mul_lo_table: [256][16]u8, // 4KB: Low nibble table (coefficient-major)
+			mul_hi_table: [256][16]u8, // 4KB: High nibble table (coefficient-major)
 		},
 		simd_32: struct {
-			mul_lo_scaled_32: [32][256]u8, // 8KB: 32-byte scaled table (includes 16-byte base)
-			mul_hi_scaled_32: [32][256]u8, // 8KB: 32-byte scaled table (includes 16-byte base)
+			mul_lo_scaled_32: [256][32]u8, // 8KB: 32-byte scaled table (coefficient-major)
+			mul_hi_scaled_32: [256][32]u8, // 8KB: 32-byte scaled table (coefficient-major)
 		},
 		simd_64: struct {
-			mul_lo_scaled_64: [64][256]u8, // 16KB: 64-byte scaled table (includes 16-byte base)
-			mul_hi_scaled_64: [64][256]u8, // 16KB: 64-byte scaled table (includes 16-byte base)
+			mul_lo_scaled_64: [256][64]u8, // 16KB: 64-byte scaled table (coefficient-major)
+			mul_hi_scaled_64: [256][64]u8, // 16KB: 64-byte scaled table (coefficient-major)
 		},
 	},
 }
 
-// Optional coefficient cache for high-performance repetitive operations
-// Caller can use this to avoid rebuilding coefficient tables
-Coeff_Cache :: struct {
-	cached_coeff: GF256,
-	cached_lo_16: [16]u8,
-	cached_hi_16: [16]u8,
-	cached_lo_32: [32]u8,
-	cached_hi_32: [32]u8,
-	cached_lo_64: [64]u8,
-	cached_hi_64: [64]u8,
-}
-
-// Cache management helpers
-
-// Initialize coefficient cache - call this before first use
-cache_init :: proc(cache: ^Coeff_Cache) {
-	cache.cached_coeff = GF256(255) // Invalid coefficient to force initial cache miss
-}
-
-// Reset coefficient cache - forces cache miss on next operation
-cache_reset :: proc(cache: ^Coeff_Cache) {
-	cache.cached_coeff = GF256(255) // Invalid coefficient
-}
+// Note: Coefficient caching was removed as benchmarks showed no performance benefit
+// The cache-friendly table layout provides sufficient optimization
 
 // Reduce polynomial modulo irreducible polynomial
 @(private)
@@ -250,53 +229,3 @@ ctx_divide_region :: proc(ctx: ^Context, dst: []u8, src: []u8, coefficient: GF25
 }
 
 ////////
-
-// Multiply region with coefficient caching - use for repetitive operations
-ctx_multiply_region_cached :: proc(
-	ctx: ^Context,
-	dst: []u8,
-	src: []u8,
-	coefficient: GF256,
-	cache: ^Coeff_Cache,
-) {
-	assert(ctx != nil, "Context must not be nil")
-	if ctx.simd_width != .None {
-		multiply_region_cached(ctx, dst, src, coefficient, cache)
-	} else {
-		multiply_region_direct_unrolled(ctx, dst, src, coefficient)
-	}
-}
-
-// Scale region with caching - alias for multiply_region_cached
-ctx_scale_region_cached :: proc(
-	ctx: ^Context,
-	dst: []u8,
-	src: []u8,
-	scale: GF256,
-	cache: ^Coeff_Cache,
-) {
-	ctx_multiply_region_cached(ctx, dst, src, scale, cache)
-}
-
-// Multiply-add region with coefficient caching - use for repetitive operations  
-ctx_multiply_add_region_cached :: proc(
-	ctx: ^Context,
-	dst: []u8,
-	src: []u8,
-	coefficient: GF256,
-	cache: ^Coeff_Cache,
-) {
-	assert(ctx != nil, "Context must not be nil")
-	if ctx.simd_width != .None {
-		multiply_add_region_cached(ctx, dst, src, coefficient, cache)
-	} else {
-		multiply_add_region_direct(ctx, dst, src, coefficient)
-	}
-}
-
-
-
-
-
-
-
